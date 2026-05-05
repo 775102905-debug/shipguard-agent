@@ -20,4 +20,5 @@ class ReviewState(TypedDict):
     score: Optional[ReviewScore]
     verdict: Optional[ReviewVerdict]
     report: str
+    llm_review: Dict[str, Any]
     errors: List[str]

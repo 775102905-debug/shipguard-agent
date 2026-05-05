@@ -13,6 +13,8 @@ from ..services import (
     dependency_scanner,
     readme_reviewer,
     report_service,
+    evidence_summary_builder,
+    llm_reviewer,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,17 +69,8 @@ def node_review_readme(state: ReviewState) -> Dict[str, Any]:
     return {"readme_findings": findings}
 
 
-def node_generate_report(state: ReviewState) -> Dict[str, Any]:
-    logger.info("=== 节点: 生成报告 ===")
-    report = report_service.generate_report(
-        request=state["request"],
-        profile=state["project_profile"],
-        structure_findings=state["structure_findings"],
-        security_findings=state["security_findings"],
-        dependency_findings=state["dependency_findings"],
-        readme_findings=state["readme_findings"],
-    )
-
+def node_score_and_verdict(state: ReviewState) -> Dict[str, Any]:
+    logger.info("=== 节点: 评分与结论 ===")
     req = state["request"]
     score = report_service.calculate_score(
         req.review_mode,
@@ -88,12 +81,44 @@ def node_generate_report(state: ReviewState) -> Dict[str, Any]:
         state["project_profile"],
     )
     verdict = report_service.determine_verdict(req.review_mode, score.total, state["security_findings"])
+    return {"score": score, "verdict": verdict}
 
-    return {
-        "report": report,
-        "score": score,
-        "verdict": verdict,
-    }
+
+async def node_llm_review(state: ReviewState) -> Dict[str, Any]:
+    logger.info("=== 节点: LLM 审查 ===")
+    req = state["request"]
+    score = state["score"]
+    verdict = state["verdict"]
+    total = score.total if score else 0
+    v = verdict.value if verdict else "PENDING"
+
+    summary = evidence_summary_builder.build_evidence_summary(
+        profile=state["project_profile"],
+        structure_findings=state["structure_findings"],
+        security_findings=state["security_findings"],
+        dependency_findings=state["dependency_findings"],
+        readme_findings=state["readme_findings"],
+        total_score=total,
+        verdict=v,
+    )
+    result = await llm_reviewer.run_llm_review(req.review_mode, summary)
+    return {"llm_review": result}
+
+
+def node_compile_report(state: ReviewState) -> Dict[str, Any]:
+    logger.info("=== 节点: 生成最终报告 ===")
+    report = report_service.generate_report(
+        request=state["request"],
+        profile=state["project_profile"],
+        structure_findings=state["structure_findings"],
+        security_findings=state["security_findings"],
+        dependency_findings=state["dependency_findings"],
+        readme_findings=state["readme_findings"],
+        score=state["score"],
+        verdict=state["verdict"],
+        llm_review=state.get("llm_review", {}),
+    )
+    return {"report": report}
 
 
 def node_cleanup(state: ReviewState) -> Dict[str, Any]:
@@ -113,7 +138,9 @@ def build_review_graph() -> StateGraph:
     graph.add_node("scan_security", node_scan_security)
     graph.add_node("scan_dependencies", node_scan_dependencies)
     graph.add_node("review_readme", node_review_readme)
-    graph.add_node("generate_report", node_generate_report)
+    graph.add_node("score_and_verdict", node_score_and_verdict)
+    graph.add_node("llm_review", node_llm_review)
+    graph.add_node("compile_report", node_compile_report)
     graph.add_node("cleanup", node_cleanup)
 
     graph.add_edge(START, "extract_zip")
@@ -123,11 +150,13 @@ def build_review_graph() -> StateGraph:
     graph.add_edge("analyze_project", "scan_security")
     graph.add_edge("analyze_project", "scan_dependencies")
     graph.add_edge("analyze_project", "review_readme")
-    graph.add_edge("scan_structure", "generate_report")
-    graph.add_edge("scan_security", "generate_report")
-    graph.add_edge("scan_dependencies", "generate_report")
-    graph.add_edge("review_readme", "generate_report")
-    graph.add_edge("generate_report", "cleanup")
+    graph.add_edge("scan_structure", "score_and_verdict")
+    graph.add_edge("scan_security", "score_and_verdict")
+    graph.add_edge("scan_dependencies", "score_and_verdict")
+    graph.add_edge("review_readme", "score_and_verdict")
+    graph.add_edge("score_and_verdict", "llm_review")
+    graph.add_edge("llm_review", "compile_report")
+    graph.add_edge("compile_report", "cleanup")
     graph.add_edge("cleanup", END)
 
     return graph.compile()

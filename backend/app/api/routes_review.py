@@ -44,6 +44,7 @@ async def create_review(
         "score": None,
         "verdict": None,
         "report": "",
+        "llm_review": {},
         "errors": [],
     }
 
@@ -83,10 +84,16 @@ async def create_review(
         ),
     }
 
+    llm_rev = result.get("llm_review", {})
+
     return ReviewResponse(
         report_markdown=result.get("report", ""),
         total_score=result.get("score").total if result.get("score") else 0,
         verdict=result.get("verdict", ReviewVerdict.REJECT),
         project_profile=result.get("project_profile", {}),
         findings_count=findings_count,
+        llm_review_enabled=llm_rev.get("llm_reviewer_enabled", False),
+        llm_model_used=llm_rev.get("llm_model_used", ""),
+        llm_profile_used=llm_rev.get("llm_profile_used", ""),
+        llm_review_summary=llm_rev.get("mode_specific_assessment", ""),
     )

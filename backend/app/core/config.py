@@ -26,6 +26,17 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
 
+    LLM_REVIEW_ENABLED: bool = False
+    LLM_BASE_URL: str = "https://api.openai.com/v1"
+    LLM_API_KEY: str = ""
+    LLM_TIMEOUT_SECONDS: int = 20
+    LLM_DEFAULT_MODEL: str = "gpt-4o-mini"
+
+    STUDENT_REVIEW_MODEL: str = ""
+    GITHUB_REVIEW_MODEL: str = ""
+    INTERVIEW_REVIEW_MODEL: str = ""
+    COMMERCIAL_REVIEW_MODEL: str = ""
+
     ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent.parent
 
     class Config:

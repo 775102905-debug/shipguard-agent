@@ -49,3 +49,7 @@ class ReviewResponse(BaseModel):
     verdict: ReviewVerdict
     project_profile: Dict[str, Any]
     findings_count: Dict[str, int]
+    llm_review_enabled: bool = False
+    llm_model_used: str = ""
+    llm_profile_used: str = ""
+    llm_review_summary: str = ""

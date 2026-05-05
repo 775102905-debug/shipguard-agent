@@ -133,14 +133,10 @@ def generate_report(
     security_findings: List[Finding],
     dependency_findings: List[Finding],
     readme_findings: List[Finding],
+    score: ReviewScore,
+    verdict: ReviewVerdict,
+    llm_review: Dict[str, Any],
 ) -> str:
-    score = calculate_score(
-        request.review_mode,
-        structure_findings, security_findings,
-        dependency_findings, readme_findings, profile,
-    )
-    verdict = determine_verdict(request.review_mode, score.total, security_findings)
-
     all_findings = structure_findings + security_findings + dependency_findings + readme_findings
     high_issues = [f for f in all_findings if f.severity == "HIGH"]
     med_issues = [f for f in all_findings if f.severity == "MEDIUM"]
@@ -250,10 +246,60 @@ def generate_report(
 
 ---
 
+## AI 审查官意见
+
+{_format_llm_section(llm_review, mode_label)}
+
+---
+
 *报告由 AI Delivery Inspector 自动生成*
 """
 
     return report
+
+
+def _format_llm_section(llm_review: Dict[str, Any], mode_label: str) -> str:
+    if not llm_review.get("llm_reviewer_enabled", False):
+        msg = llm_review.get("llm_error", "")
+        if msg:
+            return f"LLM Reviewer 尝试运行但失败: {msg}\n\n本报告使用规则审查和 {mode_label} profile 生成。"
+        return f"LLM Reviewer 未启用。本报告使用规则审查和 {mode_label} profile 生成。"
+
+    parts = []
+    model = llm_review.get("llm_model_used", "")
+    profile = llm_review.get("llm_profile_used", "")
+    conf = llm_review.get("confidence", "medium")
+
+    parts.append(f"- **启用状态**: 已启用")
+    if model:
+        parts.append(f"- **模型**: {model}")
+    if profile:
+        parts.append(f"- **审查模式**: {profile}")
+    parts.append(f"- **置信度**: {conf}")
+
+    assessment = llm_review.get("mode_specific_assessment", "")
+    if assessment:
+        parts.append(f"\n**模式化审查结论**:\n{assessment}")
+
+    risks = llm_review.get("top_risks", [])
+    if risks:
+        parts.append(f"\n**重点风险**:")
+        for r in risks:
+            parts.append(f"- {r}")
+
+    actions = llm_review.get("recommended_actions", [])
+    if actions:
+        parts.append(f"\n**建议动作**:")
+        for a in actions:
+            parts.append(f"- {a}")
+
+    notes = llm_review.get("interview_or_delivery_notes", [])
+    if notes:
+        parts.append(f"\n**附加说明**:")
+        for n in notes:
+            parts.append(f"- {n}")
+
+    return "\n".join(parts)
 
 
 def _generate_fix_prompts(
