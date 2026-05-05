@@ -1,22 +1,44 @@
 ﻿# Python
 __pycache__/
 *.py[cod]
+*.pyo
 .venv/
 venv/
 .env
 
-# Node
+# Node / frontend
 node_modules/
+frontend/node_modules/
 dist/
+frontend/dist/
 .next/
 .vite/
+frontend/.vite/
 
-# Local data
-data/
+# Runtime upload / extraction directories
 uploads/
+extracted/
+backend/uploads/
+backend/extracted/
+
+# Local data / reports
+data/
 reports/
 *.sqlite
 *.db
+
+# Smoke test / temporary response files
+good_response.json
+bad_response.json
+good_resp.json
+bad_resp.json
+good_final.json
+bad_final.json
+*_response.json
+*_final.json
+
+# Evidence packs / review artifacts
+evidence_pack_*.md
 
 # Logs
 logs/
@@ -32,4 +54,3 @@ Thumbs.db
 tmp/
 temp/
 *.zip
-
