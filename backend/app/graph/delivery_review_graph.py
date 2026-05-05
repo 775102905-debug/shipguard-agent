@@ -78,14 +78,16 @@ def node_generate_report(state: ReviewState) -> Dict[str, Any]:
         readme_findings=state["readme_findings"],
     )
 
+    req = state["request"]
     score = report_service.calculate_score(
+        req.review_mode,
         state["structure_findings"],
         state["security_findings"],
         state["dependency_findings"],
         state["readme_findings"],
         state["project_profile"],
     )
-    verdict = report_service.determine_verdict(score.total)
+    verdict = report_service.determine_verdict(req.review_mode, score.total, state["security_findings"])
 
     return {
         "report": report,

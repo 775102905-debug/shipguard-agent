@@ -5,7 +5,7 @@ from ..schemas.review import (
     ReviewRequest, ReviewMode, ReviewVerdict,
     Finding, ReviewScore,
 )
-from ..core.config import settings
+from ..core.review_modes import get_profile
 
 
 MODE_LABELS = {
@@ -17,38 +17,41 @@ MODE_LABELS = {
 
 
 def calculate_score(
+    review_mode: ReviewMode,
     structure_findings: List[Finding],
     security_findings: List[Finding],
     dependency_findings: List[Finding],
     readme_findings: List[Finding],
     profile: Dict[str, Any],
 ) -> ReviewScore:
-    # 1. 交付物完整性 (20分)
-    delivery_score = 20
+    mp = get_profile(review_mode)
     key_files = profile.get("key_files", {})
+
+    delivery_score = 20
     required_files = ["README.md", ".env.example", ".gitignore"]
-    for f in required_files:
-        if not key_files.get(f, False):
-            delivery_score -= 4
+    if not key_files.get("README.md", False):
+        delivery_score -= mp.penalty_missing_readme
+    if not key_files.get(".env.example", False):
+        delivery_score -= mp.penalty_missing_env_example
+    if not key_files.get(".gitignore", False):
+        delivery_score -= mp.penalty_missing_gitignore
     if not key_files.get("tests/"):
-        delivery_score -= 3
+        delivery_score -= mp.penalty_missing_tests
     if not key_files.get("LICENSE"):
-        delivery_score -= 2
+        delivery_score -= mp.penalty_missing_license
     delivery_score = max(0, delivery_score)
 
-    # 2. 安全风险 (25分) — 扣分制，找到越少分越高
     security_score = 25
     high_count = sum(1 for f in security_findings if f.severity == "HIGH")
     med_count = sum(1 for f in security_findings if f.severity == "MEDIUM")
     low_count = sum(1 for f in security_findings if f.severity == "LOW")
-    security_score -= high_count * 8
-    security_score -= med_count * 4
-    security_score -= low_count * 2
+    security_score -= int(high_count * mp.security_high_penalty * mp.security_multiplier)
+    security_score -= int(med_count * mp.security_med_penalty * mp.security_multiplier)
+    security_score -= int(low_count * mp.security_low_penalty * mp.security_multiplier)
     if key_files.get(".env.example"):
         security_score += 3
     security_score = max(0, min(25, security_score))
 
-    # 3. 运行与依赖配置 (20分)
     dep_score = 20
     has_any_dep = (
         key_files.get("requirements.txt", False)
@@ -56,44 +59,41 @@ def calculate_score(
         or key_files.get("package.json", False)
     )
     if not has_any_dep:
-        dep_score -= 10
+        dep_score -= int(10 * mp.dependency_multiplier)
     for f in dependency_findings:
         if f.severity == "HIGH":
-            dep_score -= 5
+            dep_score -= int(mp.dependency_high_penalty * mp.dependency_multiplier)
         elif f.severity == "MEDIUM":
-            dep_score -= 3
+            dep_score -= int(mp.dependency_med_penalty * mp.dependency_multiplier)
         else:
-            dep_score -= 1
+            dep_score -= int(1 * mp.dependency_multiplier)
     dep_score = max(0, min(20, dep_score))
 
-    # 4. README 文档质量 (15分)
     readme_score = 15
     if not key_files.get("README.md", False):
         readme_score = 0
     else:
         high_readme = sum(1 for f in readme_findings if f.severity == "HIGH")
         med_readme = sum(1 for f in readme_findings if f.severity == "MEDIUM")
-        readme_score -= high_readme * 5
-        readme_score -= med_readme * 3
+        readme_score -= int(high_readme * 5 * mp.documentation_multiplier)
+        readme_score -= int(med_readme * 3 * mp.documentation_multiplier)
         readme_score = max(0, readme_score)
 
-    # 5. Docker / 部署说明 (10分)
     docker_score = 10
     has_dockerfile = key_files.get("Dockerfile", False)
     has_docker_compose = key_files.get("docker-compose.yml", False)
     if not has_dockerfile:
-        docker_score -= 5
+        docker_score -= int(5 * mp.deployment_multiplier)
     if not has_docker_compose:
-        docker_score -= 3
+        docker_score -= int(3 * mp.deployment_multiplier)
     docker_score = max(0, docker_score)
 
-    # 6. 项目结构与可维护性 (10分)
     struct_score = 10
     has_backend = profile.get("has_backend", False)
     has_frontend = profile.get("has_frontend", False)
     if not has_backend and not has_frontend:
-        struct_score -= 3
-    struct_score -= len(structure_findings)
+        struct_score -= int(3 * mp.maintainability_multiplier)
+    struct_score -= int(len(structure_findings) * mp.maintainability_multiplier)
     struct_score = max(0, min(10, struct_score))
 
     total = delivery_score + security_score + dep_score + readme_score + docker_score + struct_score
@@ -109,10 +109,19 @@ def calculate_score(
     )
 
 
-def determine_verdict(total_score: int) -> ReviewVerdict:
-    if total_score >= settings.PASS_THRESHOLD:
+def determine_verdict(review_mode: ReviewMode, total_score: int, security_findings: List[Finding]) -> ReviewVerdict:
+    mp = get_profile(review_mode)
+
+    high_security_count = sum(1 for f in security_findings if f.severity == "HIGH")
+
+    if mp.max_high_security_for_pass is not None and high_security_count > mp.max_high_security_for_pass:
+        if mp.max_high_security_for_conditional_pass is not None and high_security_count > mp.max_high_security_for_conditional_pass:
+            return ReviewVerdict.REJECT
+        return ReviewVerdict.CONDITIONAL_PASS
+
+    if total_score >= mp.pass_threshold:
         return ReviewVerdict.PASS
-    elif total_score >= settings.CONDITIONAL_PASS_THRESHOLD:
+    elif total_score >= mp.conditional_threshold:
         return ReviewVerdict.CONDITIONAL_PASS
     return ReviewVerdict.REJECT
 
@@ -126,10 +135,11 @@ def generate_report(
     readme_findings: List[Finding],
 ) -> str:
     score = calculate_score(
+        request.review_mode,
         structure_findings, security_findings,
         dependency_findings, readme_findings, profile,
     )
-    verdict = determine_verdict(score.total)
+    verdict = determine_verdict(request.review_mode, score.total, security_findings)
 
     all_findings = structure_findings + security_findings + dependency_findings + readme_findings
     high_issues = [f for f in all_findings if f.severity == "HIGH"]
@@ -137,6 +147,7 @@ def generate_report(
     low_issues = [f for f in all_findings if f.severity == "LOW"]
 
     mode_label = MODE_LABELS.get(request.review_mode, request.review_mode.value)
+    mp = get_profile(request.review_mode)
     verdict_icon = {"PASS": "✅", "CONDITIONAL_PASS": "⚠️", "REJECT": "❌"}.get(verdict.value, "❓")
 
     key_files = profile.get("key_files", {})
@@ -185,6 +196,13 @@ def generate_report(
 | Docker / 部署说明 | {score.docker_deploy} | 10 |
 | 项目结构与可维护性 | {score.structure_maintainability} | 10 |
 | **总分** | **{score.total}** | **100** |
+
+---
+
+## 当前审查模式说明
+
+**{mode_label}**
+{mp.guidance}
 
 ---
 
