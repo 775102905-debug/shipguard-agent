@@ -7,6 +7,7 @@ from ..schemas.review import (
     ReviewRequest, ReviewResponse, ReviewMode, ReviewVerdict, Finding,
 )
 from ..services.zip_service import validate_upload
+from ..services.redaction_service import redact_report_markdown
 from ..core.config import settings
 from ..graph.state import ReviewState
 from ..graph.delivery_review_graph import review_graph
@@ -87,6 +88,9 @@ async def create_review(
         ),
     }
 
+    report_md = result.get("report", "")
+    report_md = redact_report_markdown(report_md)
+
     llm_rev = result.get("llm_review", {})
     llm_guard = result.get("llm_guard_findings", [])
 
@@ -110,7 +114,7 @@ async def create_review(
             pass
 
     return ReviewResponse(
-        report_markdown=result.get("report", ""),
+        report_markdown=report_md,
         total_score=result.get("score").total if result.get("score") else 0,
         verdict=verdict_val,
         project_profile=result.get("project_profile", {}),

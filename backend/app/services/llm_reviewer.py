@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 from ..schemas.review import ReviewMode
 from ..core.llm_review_profiles import get_llm_profile, LLM_REVIEW_PROFILES
 from ..core.config import settings
+from ..services.redaction_service import redact
 
 logger = logging.getLogger(__name__)
 
@@ -155,14 +156,7 @@ def parse_llm_json_response(raw_text: str, model: str) -> Dict[str, Any]:
 
 
 def _sanitize_preview(text: str) -> str:
-    patterns = [
-        (r"(?i)(api_key|api-key)\s*[:=]\s*['\"][^'\"]+['\"]", r"\1: ***"),
-        (r"(?i)(authorization|bearer)\s*[:=]\s*['\"][^'\"]+['\"]", r"\1: ***"),
-        (r"(?i)(token|secret|password)\s*[:=]\s*['\"][^'\"]+['\"]", r"\1: ***"),
-    ]
-    result = text
-    for pattern, replacement in patterns:
-        result = re.sub(pattern, replacement, result)
+    result = redact(text)
     if len(result) > 300:
         result = result[:300] + "..."
     return result

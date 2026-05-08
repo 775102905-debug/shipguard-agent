@@ -6,6 +6,7 @@ from ..schemas.review import (
     Finding, ReviewScore,
 )
 from ..core.review_modes import get_profile
+from ..services.redaction_service import redact_report_markdown
 
 
 MODE_LABELS = {
@@ -260,7 +261,7 @@ def generate_report(
 *报告由 AI Delivery Inspector 自动生成*
 """
 
-    return report
+    return redact_report_markdown(report)
 
 
 def _format_llm_guard_section(guard_findings: Optional[List[Dict[str, Any]]]) -> str:
