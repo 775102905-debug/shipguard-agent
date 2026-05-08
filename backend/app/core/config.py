@@ -1,8 +1,15 @@
 from pathlib import Path
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
     APP_ENV: str = "development"
     DEBUG: bool = True
     HOST: str = "0.0.0.0"
@@ -37,11 +44,12 @@ class Settings(BaseSettings):
     INTERVIEW_REVIEW_MODEL: str = ""
     COMMERCIAL_REVIEW_MODEL: str = ""
 
-    ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent.parent
+    ROOT_DIR: Path = PROJECT_ROOT
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    LLM_GUARD_ENABLED: bool = False
+    LLM_GUARD_BLOCK_ON_HIGH_RISK: bool = True
+
+    METRICS_ENABLED: bool = True
 
 
 settings = Settings()

@@ -5,6 +5,7 @@ from langgraph.graph import StateGraph, START, END
 
 from .state import ReviewState
 from ..schemas.review import ReviewRequest, ReviewVerdict
+from ..core.config import settings
 from ..services import (
     zip_service,
     project_parser,
@@ -15,6 +16,7 @@ from ..services import (
     report_service,
     evidence_summary_builder,
     llm_reviewer,
+    llm_guard_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,7 +87,7 @@ def node_score_and_verdict(state: ReviewState) -> Dict[str, Any]:
 
 
 async def node_llm_review(state: ReviewState) -> Dict[str, Any]:
-    logger.info("=== 节点: LLM 审查 ===")
+    logger.info("=== 节点: LLM 审查 + LLM Guard ===")
     req = state["request"]
     score = state["score"]
     verdict = state["verdict"]
@@ -101,8 +103,36 @@ async def node_llm_review(state: ReviewState) -> Dict[str, Any]:
         total_score=total,
         verdict=v,
     )
+
+    llm_guard_findings = []
+    summary_text = str(summary)
+
+    if settings.LLM_GUARD_ENABLED:
+        input_scan = llm_guard_service.scan_input(summary_text)
+        llm_guard_findings.extend(input_scan["findings"])
+
+        if input_scan["blocked"] and settings.LLM_GUARD_BLOCK_ON_HIGH_RISK:
+            logger.warning("LLM Guard blocked LLM review due to high-risk input")
+            result = {
+                "llm_reviewer_enabled": False,
+                "llm_error": "LLM Guard 检测到高风险输入，已跳过 LLM 审查。",
+                "llm_guard_status": "blocked",
+            }
+            return {"llm_review": result, "llm_guard_findings": llm_guard_findings}
+
     result = await llm_reviewer.run_llm_review(req.review_mode, summary)
-    return {"llm_review": result}
+
+    if settings.LLM_GUARD_ENABLED and result.get("llm_reviewer_enabled"):
+        output_text = str(result)
+        output_scan = llm_guard_service.scan_output(output_text)
+        llm_guard_findings.extend(output_scan["findings"])
+        if output_scan["findings"]:
+            result["llm_guard_status"] = "output_warnings"
+
+    if llm_guard_findings:
+        result["llm_guard_findings"] = llm_guard_findings
+
+    return {"llm_review": result, "llm_guard_findings": llm_guard_findings}
 
 
 def node_compile_report(state: ReviewState) -> Dict[str, Any]:
@@ -117,6 +147,7 @@ def node_compile_report(state: ReviewState) -> Dict[str, Any]:
         score=state["score"],
         verdict=state["verdict"],
         llm_review=state.get("llm_review", {}),
+        llm_guard_findings=state.get("llm_guard_findings"),
     )
     return {"report": report}
 

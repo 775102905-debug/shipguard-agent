@@ -53,3 +53,6 @@ class ReviewResponse(BaseModel):
     llm_model_used: str = ""
     llm_profile_used: str = ""
     llm_review_summary: str = ""
+    llm_guard_status: str = "not_scanned"
+    llm_guard_findings: List[Dict[str, Any]] = []
+    llm_review_skipped_reason: str = ""

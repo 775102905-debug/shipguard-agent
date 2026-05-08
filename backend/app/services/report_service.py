@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from ..schemas.review import (
@@ -136,6 +136,7 @@ def generate_report(
     score: ReviewScore,
     verdict: ReviewVerdict,
     llm_review: Dict[str, Any],
+    llm_guard_findings: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     all_findings = structure_findings + security_findings + dependency_findings + readme_findings
     high_issues = [f for f in all_findings if f.severity == "HIGH"]
@@ -252,15 +253,35 @@ def generate_report(
 
 ---
 
+{_format_llm_guard_section(llm_guard_findings)}
+
+---
+
 *报告由 AI Delivery Inspector 自动生成*
 """
 
     return report
 
 
+def _format_llm_guard_section(guard_findings: Optional[List[Dict[str, Any]]]) -> str:
+    if not guard_findings:
+        return ""
+    parts = ["## LLM Guard 安全扫描"]
+    for f in guard_findings:
+        parts.append(f"- 类型: {f.get('type', 'unknown')}, 严重程度: {f.get('severity', 'unknown')}")
+    return "\n".join(parts)
+
+
 def _format_llm_section(llm_review: Dict[str, Any], mode_label: str) -> str:
     if not llm_review.get("llm_reviewer_enabled", False):
+        error_type = llm_review.get("llm_error_type", "")
         msg = llm_review.get("llm_error", "")
+        if error_type == "malformed_json":
+            return (
+                f"LLM Reviewer 已调用，但模型返回内容不是合法 JSON，"
+                f"系统已自动降级为规则审查报告。请检查模型是否遵守 JSON-only 输出格式。\n\n"
+                f"本报告使用规则审查和 {mode_label} profile 生成。"
+            )
         if msg:
             return f"LLM Reviewer 尝试运行但失败: {msg}\n\n本报告使用规则审查和 {mode_label} profile 生成。"
         return f"LLM Reviewer 未启用。本报告使用规则审查和 {mode_label} profile 生成。"

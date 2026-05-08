@@ -1,4 +1,5 @@
 import logging
+import time
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Dict, Any
 
@@ -6,6 +7,7 @@ from ..schemas.review import (
     ReviewRequest, ReviewResponse, ReviewMode, ReviewVerdict, Finding,
 )
 from ..services.zip_service import validate_upload
+from ..core.config import settings
 from ..graph.state import ReviewState
 from ..graph.delivery_review_graph import review_graph
 
@@ -45,6 +47,7 @@ async def create_review(
         "verdict": None,
         "report": "",
         "llm_review": {},
+        "llm_guard_findings": [],
         "errors": [],
     }
 
@@ -85,15 +88,38 @@ async def create_review(
     }
 
     llm_rev = result.get("llm_review", {})
+    llm_guard = result.get("llm_guard_findings", [])
+
+    verdict_val = result.get("verdict", ReviewVerdict.REJECT)
+
+    if settings.METRICS_ENABLED:
+        try:
+            from app.observability.metrics import observe_review, observe_llm_review
+
+            mode_name = request.review_mode.value if hasattr(request.review_mode, "value") else str(request.review_mode)
+            duration = time.time() - getattr(request, "_start_time", time.time())
+            observe_review(
+                mode=mode_name,
+                verdict=verdict_val.value if hasattr(verdict_val, "value") else str(verdict_val),
+                duration=duration,
+                findings=findings_count,
+            )
+            llm_status = "enabled" if llm_rev.get("llm_reviewer_enabled") else "disabled"
+            observe_llm_review(status=llm_status)
+        except Exception:
+            pass
 
     return ReviewResponse(
         report_markdown=result.get("report", ""),
         total_score=result.get("score").total if result.get("score") else 0,
-        verdict=result.get("verdict", ReviewVerdict.REJECT),
+        verdict=verdict_val,
         project_profile=result.get("project_profile", {}),
         findings_count=findings_count,
         llm_review_enabled=llm_rev.get("llm_reviewer_enabled", False),
         llm_model_used=llm_rev.get("llm_model_used", ""),
         llm_profile_used=llm_rev.get("llm_profile_used", ""),
         llm_review_summary=llm_rev.get("mode_specific_assessment", ""),
+        llm_guard_status=llm_rev.get("llm_guard_status", "not_scanned" if not settings.LLM_GUARD_ENABLED else "passed"),
+        llm_guard_findings=llm_guard,
+        llm_review_skipped_reason=llm_rev.get("llm_error", ""),
     )
