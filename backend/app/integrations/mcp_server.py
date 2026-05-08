@@ -51,8 +51,15 @@ def _validate_zip_path(zip_path: str) -> Path:
         except ValueError:
             continue
     if not safe:
-        allowed = ", ".join(str(d) for d in _SAFE_DIRS)
-        raise ValueError(f"路径不在安全白名单内。允许的目录: {allowed}")
+        rel_allowed = []
+        for d in _SAFE_DIRS:
+            try:
+                rel = d.relative_to(settings.ROOT_DIR)
+                rel_allowed.append(str(rel))
+            except ValueError:
+                rel_allowed.append(d.name)
+        allowed = ", ".join(rel_allowed)
+        raise ValueError(f"路径不在安全白名单内。允许的目录: {allowed}（相对项目根目录）")
     return resolved
 
 
