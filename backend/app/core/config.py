@@ -51,5 +51,9 @@ class Settings(BaseSettings):
 
     METRICS_ENABLED: bool = True
 
+    MCP_ENABLED: bool = False
+    MCP_SAFE_UPLOAD_DIR: str = "examples"
+    MCP_MAX_ZIP_MB: int = 50
+
 
 settings = Settings()
