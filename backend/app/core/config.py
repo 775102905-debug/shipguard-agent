@@ -55,5 +55,8 @@ class Settings(BaseSettings):
     MCP_SAFE_UPLOAD_DIR: str = "examples"
     MCP_MAX_ZIP_MB: int = 50
 
+    HISTORY_ENABLED: bool = True
+    HISTORY_AUTO_SAVE: bool = False
+
 
 settings = Settings()

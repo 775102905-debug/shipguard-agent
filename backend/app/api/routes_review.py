@@ -91,6 +91,15 @@ async def create_review(
     report_md = result.get("report", "")
     report_md = redact_report_markdown(report_md)
 
+    if settings.HISTORY_ENABLED and settings.HISTORY_AUTO_SAVE:
+        try:
+            from ..history.summary_builder import build_summary
+            from ..history.store import save_record
+            record = build_summary(result)
+            save_record(record)
+        except Exception:
+            pass
+
     llm_rev = result.get("llm_review", {})
     llm_guard = result.get("llm_guard_findings", [])
 

@@ -12,6 +12,8 @@ from ..graph.state import ReviewState
 from ..services.redaction_service import redact
 from ..services.report_service import MODE_LABELS
 from ..core.config import settings
+from ..history.store import list_reports as history_list_reports, get_report as history_get_report
+from ..history.compare_service import compare_reports
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +205,99 @@ async def explain_fix_plan() -> str:
     if not _last_report:
         return "尚未执行审查，请先运行 review_zip"
     return _build_fix_plan(_last_report)
+
+
+@mcp.tool()
+async def list_reports(limit: int = 20, offset: int = 0) -> str:
+    """返回历史审查报告列表
+
+    Args:
+        limit: 返回条数（最多100）
+        offset: 偏移量
+    """
+    if not settings.HISTORY_ENABLED:
+        return "History store is disabled"
+    reports = history_list_reports(limit=min(limit, 100), offset=offset)
+    if not reports:
+        return "暂无历史报告"
+    lines = [f"共 {len(reports)} 条记录:"]
+    for r in reports:
+        created = r.get("created_at", "")[:19]
+        lines.append(f"- {r.get('report_id','')} | {r.get('project_alias','')} | "
+                      f"得分: {r.get('score',0)} | {r.get('verdict','')} | {created}")
+    return redact("\n".join(lines))
+
+
+@mcp.tool()
+async def get_report(report_id: str) -> str:
+    """查看单个历史报告详情
+
+    Args:
+        report_id: 报告ID（来自 list_reports）
+    """
+    if not settings.HISTORY_ENABLED:
+        return "History store is disabled"
+    report = history_get_report(report_id)
+    if not report:
+        return f"报告不存在: {report_id}"
+    lines = [
+        f"报告ID: {report.get('report_id','')}",
+        f"项目: {report.get('project_alias','')}",
+        f"模式: {report.get('review_mode','')}",
+        f"得分: {report.get('score',0)}/100",
+        f"结论: {report.get('verdict','')}",
+        f"项目类型: {report.get('project_type','')}",
+        f"时间: {report.get('created_at','')[:19]}",
+        f"发现: HIGH={report.get('findings_summary',{}).get('HIGH',0)} "
+        f"MED={report.get('findings_summary',{}).get('MEDIUM',0)} "
+        f"LOW={report.get('findings_summary',{}).get('LOW',0)}",
+    ]
+    security = report.get("top_security_findings", [])
+    if security:
+        lines.append(f"\n安全发现 ({len(security)}):")
+        for f in security:
+            lines.append(f"- {f}")
+    return redact("\n".join(lines))
+
+
+@mcp.tool()
+async def compare_reports_tool(report_id_a: str, report_id_b: str) -> str:
+    """对比两次历史报告
+
+    Args:
+        report_id_a: 较早的报告ID
+        report_id_b: 较新的报告ID
+    """
+    if not settings.HISTORY_ENABLED:
+        return "History store is disabled"
+    try:
+        result = compare_reports(report_id_a, report_id_b)
+    except ValueError as e:
+        return str(e)
+    lines = [
+        f"对比: {report_id_a} → {report_id_b}",
+        f"得分: {result.previous_score} → {result.current_score} (Δ{result.score_delta:+.0f})",
+        f"结论: {result.previous_verdict} → {result.current_verdict}",
+    ]
+    if result.mode_changed:
+        lines.append("⚠️ 模式不同")
+    if result.fixed_findings:
+        lines.append(f"\n已修复 ({len(result.fixed_findings)}):")
+        for f in result.fixed_findings[:5]:
+            lines.append(f"- {f}")
+    if result.new_findings:
+        lines.append(f"\n新增 ({len(result.new_findings)}):")
+        for f in result.new_findings[:5]:
+            lines.append(f"- {f}")
+    if result.persistent_findings:
+        lines.append(f"\n仍未解决 ({len(result.persistent_findings)}):")
+        for f in result.persistent_findings[:5]:
+            lines.append(f"- {f}")
+    if result.improved_dimensions:
+        lines.append(f"\n改善维度: {result.improved_dimensions}")
+    if result.regressed_dimensions:
+        lines.append(f"\n退化维度: {result.regressed_dimensions}")
+    return redact("\n".join(lines))
 
 
 def run_mcp_server(host: str = "127.0.0.1", port: int = 8100):

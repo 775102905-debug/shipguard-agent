@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.routes_review import router as review_router
+from app.api.routes_history import router as history_router
 
 app = FastAPI(
     title="AI Delivery Inspector",
@@ -23,6 +24,7 @@ app.add_middleware(
 )
 
 app.include_router(review_router, prefix="/api")
+app.include_router(history_router)
 
 
 @app.get("/")
