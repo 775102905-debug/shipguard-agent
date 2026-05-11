@@ -100,6 +100,13 @@ async def create_review(
         except Exception:
             pass
 
+    if settings.KNOWLEDGE_ENABLED and settings.KNOWLEDGE_AUTO_INDEX:
+        try:
+            from ..knowledge.index_service import rebuild_index
+            rebuild_index()
+        except Exception:
+            pass
+
     llm_rev = result.get("llm_review", {})
     llm_guard = result.get("llm_guard_findings", [])
 

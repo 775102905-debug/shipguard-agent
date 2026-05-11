@@ -14,6 +14,8 @@ from ..services.report_service import MODE_LABELS
 from ..core.config import settings
 from ..history.store import list_reports as history_list_reports, get_report as history_get_report
 from ..history.compare_service import compare_reports
+from ..knowledge.index_service import is_index_built, get_index_size, rebuild_index
+from ..knowledge.retrieval_service import search_similar_reports, generate_advise
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +299,82 @@ async def compare_reports_tool(report_id_a: str, report_id_b: str) -> str:
         lines.append(f"\n改善维度: {result.improved_dimensions}")
     if result.regressed_dimensions:
         lines.append(f"\n退化维度: {result.regressed_dimensions}")
+    return redact("\n".join(lines))
+
+
+@mcp.tool()
+async def knowledge_status() -> str:
+    """返回 Knowledge Index 状态"""
+    if not settings.KNOWLEDGE_ENABLED:
+        return "Knowledge base is disabled"
+    return (f"Knowledge Index: {'已构建' if is_index_built() else '未构建'}, "
+            f"文档数: {get_index_size()}")
+
+
+@mcp.tool()
+async def search_reports(query: str, max_results: int = 5, review_mode: str = "") -> str:
+    """基于历史报告知识库搜索相似项目
+
+    Args:
+        query: 搜索关键词（如项目类型、风险描述等）
+        max_results: 最大返回条数
+        review_mode: 按审查模式过滤（可选）
+    """
+    if not settings.KNOWLEDGE_ENABLED:
+        return "Knowledge base is disabled"
+    mode = review_mode if review_mode else None
+    results = search_similar_reports(
+        query_text=query,
+        max_results=max_results,
+        review_mode=mode,
+    )
+    if not results:
+        return "未找到匹配的历史报告"
+    lines = [f"找到 {len(results)} 条相似报告:"]
+    for r in results:
+        lines.append(f"- [{r.report_id}] {r.verdict} (得分:{r.score}) {r.review_mode}")
+        lines.append(f"  匹配: {r.matched_summary[:80]}")
+        lines.append(f"  原因: {r.reason[:80]}")
+    return redact("\n".join(lines))
+
+
+@mcp.tool()
+async def suggest_fix_plan(query: str = "", max_results: int = 5) -> str:
+    """基于历史知识库生成整改建议
+
+    Args:
+        query: 项目描述关键词（可选）
+        max_results: 参考的报告数量
+    """
+    if not settings.KNOWLEDGE_ENABLED:
+        return "Knowledge base is disabled"
+    advise = generate_advise(query_text=query, max_results=max_results)
+    lines = [f"分析报告数: {advise.total_reports_analyzed}"]
+    if advise.common_risks:
+        lines.append(f"\n常见风险 ({len(advise.common_risks)}):")
+        for r in advise.common_risks:
+            lines.append(f"- {r}")
+    if advise.next_fix_plan:
+        lines.append(f"\n整改建议:\n{advise.next_fix_plan}")
+    return redact("\n".join(lines))
+
+
+@mcp.tool()
+async def generate_interview_notes(query: str = "", max_results: int = 5) -> str:
+    """基于历史报告生成面试表达建议
+
+    Args:
+        query: 项目描述关键词（可选）
+        max_results: 参考的报告数量
+    """
+    if not settings.KNOWLEDGE_ENABLED:
+        return "Knowledge base is disabled"
+    advise = generate_advise(query_text=query, max_results=max_results)
+    if not advise.interview_talking_points:
+        return "暂无面试表达建议（知识库为空）"
+    lines = [f"基于 {advise.total_reports_analyzed} 份历史报告的面试表达建议:"]
+    for i, pt in enumerate(advise.interview_talking_points, 1):
+        lines.append(f"{i}. {pt}")
     return redact("\n".join(lines))
 
 

@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -25,6 +25,7 @@ backend/extracted/
 data/
 reports/
 *.sqlite
+*.sqlite3
 *.db
 
 # Smoke test / temporary response files
@@ -36,6 +37,8 @@ good_final.json
 bad_final.json
 *_response.json
 *_final.json
+*_out.txt
+*_err.txt
 
 # Evidence packs / review artifacts
 evidence_pack_*.md

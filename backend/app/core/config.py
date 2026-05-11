@@ -58,5 +58,11 @@ class Settings(BaseSettings):
     HISTORY_ENABLED: bool = True
     HISTORY_AUTO_SAVE: bool = False
 
+    KNOWLEDGE_ENABLED: bool = False
+    KNOWLEDGE_AUTO_INDEX: bool = False
+    KNOWLEDGE_INDEX_PATH: str = "data/knowledge_index"
+    KNOWLEDGE_MAX_RESULTS: int = 5
+    KNOWLEDGE_USE_LLAMAINDEX: bool = False
+
 
 settings = Settings()
